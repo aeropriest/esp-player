@@ -6,6 +6,8 @@
    software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
    CONDITIONS OF ANY KIND, either express or implied.
 */
+// #define _ADD_HTTP_MP3_
+#define _HAS_WIFI_
 
 #include "esp_log.h"
 #include "board.h"
@@ -22,12 +24,23 @@
 #include "audio_event_iface.h"
 #include "audio_mem.h"
 #include "audio_common.h"
+#ifdef _ADD_HTTP_MP3_
+#include "http_stream.h"
+#endif
+
+#ifdef _HAS_WIFI_
+#include "esp_wifi.h"
+#endif
+
 #include "i2s_stream.h"
 #include "mp3_decoder.h"
 #include "esp_peripherals.h"
 #include "periph_touch.h"
 #include "periph_adc_button.h"
 #include "periph_button.h"
+#ifdef _HAS_WIFI_
+#include "periph_wifi.h"
+#endif
 #include "board.h"
 
 
@@ -147,7 +160,7 @@ void app_main(void)
 {
     printf('-------- hello worl of music --------------------');
     audio_pipeline_handle_t pipeline;
-    audio_element_handle_t i2s_stream_writer, mp3_decoder;
+    audio_element_handle_t http_stream_reader, i2s_stream_writer, mp3_decoder;
 
 
     esp_log_level_set("*", ESP_LOG_WARN);
@@ -170,19 +183,42 @@ void app_main(void)
     mp3_decoder_cfg_t mp3_cfg = DEFAULT_MP3_DECODER_CONFIG();
     mp3_decoder = mp3_decoder_init(&mp3_cfg);
     audio_element_set_read_cb(mp3_decoder, mp3_music_read_cb, NULL);
+#ifdef _ADD_HTTP_MP31_
+    ESP_LOGI(TAG, "[2.2] Create http stream to read data");
+    http_stream_cfg_t http_cfg = HTTP_STREAM_CFG_DEFAULT();
+    http_stream_reader = http_stream_init(&http_cfg);
+#endif
 
-    ESP_LOGI(TAG, "[2.2] Create i2s stream to write data to codec chip");
+    ESP_LOGI(TAG, "[2.3] Create i2s stream to write data to codec chip");
     i2s_stream_cfg_t i2s_cfg = I2S_STREAM_CFG_DEFAULT();
     i2s_cfg.type = AUDIO_STREAM_WRITER;
     i2s_stream_writer = i2s_stream_init(&i2s_cfg);
 
     ESP_LOGI(TAG, "[2.3] Register all elements to audio pipeline");
     audio_pipeline_register(pipeline, mp3_decoder, "mp3");
+#ifdef _ADD_HTTP_MP31_    
+    audio_pipeline_register(pipeline, http_stream_reader, "http");
+#endif
     audio_pipeline_register(pipeline, i2s_stream_writer, "i2s");
 
-    ESP_LOGI(TAG, "[2.4] Link it together [mp3_music_read_cb]-->mp3_decoder-->i2s_stream-->[codec_chip]");
-    const char *link_tag[2] = {"mp3", "i2s"};
-    audio_pipeline_link(pipeline, &link_tag[0], 2);
+
+    ESP_LOGI(TAG, "[2.5] Link it together http_stream-->mp3_decoder-->i2s_stream-->[codec_chip]");
+#ifdef _ADD_HTTP_MP31_    
+    const char *link_tag[3] = {"http", "mp3", "i2s"};
+#else
+    const char *link_tag[3] = {"mp3", "i2s"};
+#endif
+    audio_pipeline_link(pipeline, &link_tag[0], 3);
+
+#ifdef _ADD_HTTP_MP31_    
+    ESP_LOGI(TAG, "[2.6] Set up  uri (http as http_stream, mp3 as mp3 decoder, and default output is i2s)");
+    audio_element_set_uri(http_stream_reader, "https://dl.espressif.com/dl/audio/ff-16b-2c-44100hz.mp3");
+#endif
+
+
+    // ESP_LOGI(TAG, "[2.4] Link it together [mp3_music_read_cb]-->mp3_decoder-->i2s_stream-->[codec_chip]");
+    // const char *link_tag[2] = {"mp3", "i2s"};
+    // audio_pipeline_link(pipeline, &link_tag[0], 2);
 
     ESP_LOGI(TAG, "[ 3 ] Initialize peripherals");
     esp_periph_config_t periph_cfg = DEFAULT_ESP_PERIPH_SET_CONFIG();
